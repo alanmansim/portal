@@ -221,8 +221,8 @@ function cartaoHTML(cam, ct, n, total) {
     ${d ? `<div class="grande${d.numero.length > 7 ? " longo" : ""}">${esc(d.numero)}<small>${esc(d.legenda)}</small></div>` : ""}
     <div>
       <p class="contador">${n} de ${total}</p>
-      <p class="assunto">${ct.titulo}</p>
-      <h3>${ct.tese}</h3>
+      <h3>${ct.titulo}</h3>
+      <p class="deck">${ct.tese}</p>
       ${ct.resumo ? `<p class="resumo">${ct.resumo}</p>` : ""}
       ${ct.grafico ? `<figure class="graf">${ct.grafico}</figure>` : ""}
       <div class="ver"><button class="btn btn-mini" type="button" data-ver="${ct.id}" aria-expanded="false" aria-controls="det-${ct.id}">Ver o detalhe ↓</button></div>

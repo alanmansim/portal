@@ -135,12 +135,15 @@ em.s,.s{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--l
 .capitulo > h2{font:500 22px var(--serif);font-style:italic;color:var(--laranja-texto);margin:24px 0 0;padding-bottom:10px;border-bottom:1px solid var(--linha-forte)}
 .tese{display:grid;grid-template-columns:260px 1fr;gap:40px;padding:40px 0;border-bottom:1px solid var(--linha)}
 .tese.sem-num{grid-template-columns:1fr}
-.tese .contador{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--cinza-claro);margin:0 0 6px}
-.tese .assunto{font:500 21px/1.25 var(--serif);font-style:italic;color:var(--laranja-texto);margin:0 0 8px}
+.tese .contador{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--cinza-claro);margin:0 0 8px}
+.tese .deck{font:400 clamp(19px,2vw,22px)/1.4 var(--serif);color:var(--tinta);margin:0 0 14px;max-width:700px}
+.tese .deck strong{font-weight:600}
+.tese .deck em{font-style:italic}
 .tese .grande{font-size:clamp(48px,7vw,84px);font-weight:800;letter-spacing:-.04em;line-height:.92;color:var(--laranja)}
 .tese .grande.longo{font-size:clamp(38px,4.6vw,54px);line-height:1}
 .tese .grande small{display:block;font-size:14px;font-weight:600;letter-spacing:0;color:var(--cinza);margin-top:12px;line-height:1.4}
-.tese h3{margin:0 0 12px;font-size:clamp(22px,2.5vw,28px);letter-spacing:-.02em;line-height:1.18;max-width:760px}
+.tese h3{margin:0 0 10px;font-size:clamp(28px,3.4vw,38px);font-weight:800;letter-spacing:-.025em;line-height:1.08;max-width:760px}
+.tese .resumo{color:var(--cinza)}
 .tese .resumo{margin:0 0 14px;max-width:700px}
 .tese .resumo strong{font-weight:800}
 .graf{margin:18px 0 0;background:var(--creme);border:1px solid var(--linha);border-radius:12px;padding:16px;overflow:hidden}
