@@ -220,7 +220,8 @@ function cartaoHTML(cam, ct, n, total) {
   return `<article class="tese ${d ? "" : "sem-num"}" id="cartao-${ct.id}" data-cartao="${ct.id}">
     ${d ? `<div class="grande${d.numero.length > 7 ? " longo" : ""}">${esc(d.numero)}<small>${esc(d.legenda)}</small></div>` : ""}
     <div>
-      <p class="rotulo">${n} de ${total} · ${ct.titulo}</p>
+      <p class="contador">${n} de ${total}</p>
+      <p class="assunto">${ct.titulo}</p>
       <h3>${ct.tese}</h3>
       ${ct.resumo ? `<p class="resumo">${ct.resumo}</p>` : ""}
       ${ct.grafico ? `<figure class="graf">${ct.grafico}</figure>` : ""}
