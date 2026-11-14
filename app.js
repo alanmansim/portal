@@ -1,8 +1,34 @@
-/* Portal SparkSales · casca pública. Não contém dados: o conteúdo vem de FONTE (local no desenvolvimento,
-   Supabase depois da palavra-passe na versão publicada). */
+/* Portal SparkSales · casca pública. Não contém dados: o conteúdo vem do servidor depois do e-mail + palavra-passe.
+   Prévia local (desenvolvimento): ?local=1 lê conteudo/*.json desta pasta (ignorada pelo git). */
 "use strict";
 
+const API = "https://zxrpkorjfojnzgcgxwvi.supabase.co/functions/v1/portal";
+const QS = new URLSearchParams(location.search);
+const LOCAL = QS.has("local");
+const DOC = QS.get("d") || (location.pathname.match(/\/p\/([A-Za-z0-9_-]+)/) || [])[1] || "";
 const FONTE = { conteudo: "conteudo/conteudo.json", carteira: "conteudo/carteira.json" };
+
+/* ---------------- sessão (token curto guardado neste navegador) ---------------- */
+const S = (() => {
+  const CH = "portal.sessao." + DOC;
+  let s = null;
+  try { s = JSON.parse(localStorage.getItem(CH) || "null"); } catch (e) { s = null; }
+  if (s && (!s.token || new Date(s.expira_em) < new Date())) s = null;
+  return {
+    token: () => s && s.token, email: () => s && s.email,
+    guardar(v) { s = v; try { localStorage.setItem(CH, JSON.stringify(v)); } catch (e) {} },
+    sair() { s = null; try { localStorage.removeItem(CH); } catch (e) {} },
+  };
+})();
+class SemSessao extends Error {}
+async function api(rota, corpo = {}) {
+  // Corpo em text/plain (padrão do fetch com string): pedido simples, sem pré-checagem de CORS.
+  const r = await fetch(API + "/" + rota, { method: "POST", body: JSON.stringify({ ...corpo, token: S.token() }), cache: "no-store" });
+  let d = {}; try { d = await r.json(); } catch (e) {}
+  if (r.status === 401 && rota !== "entrar") { S.sair(); throw new SemSessao(d.erro || "Sessão expirada."); }
+  if (!r.ok) { const e = new Error(d.erro || "HTTP " + r.status); e.status = r.status; throw e; }
+  return d;
+}
 const PERCURSO = ["toc", "bpmmm", "dados", "carteira"];
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -26,12 +52,12 @@ const T = (() => {
     } catch (e) { /* nunca quebra a página */ }
   }
   async function enviar(final = false) {
-    if (!destino || !fila.length) return;
-    const lote = fila.splice(0, fila.length);
+    if (!destino || !fila.length || !S.token()) return;
+    const lote = fila.splice(0, 200);
     try {
-      const corpo = JSON.stringify({ eventos: lote });
-      if (final && navigator.sendBeacon) navigator.sendBeacon(destino, corpo);
-      else await fetch(destino, { method: "POST", headers: { "Content-Type": "application/json" }, body: corpo, keepalive: true });
+      const corpo = JSON.stringify({ token: S.token(), eventos: lote });
+      if (final && navigator.sendBeacon) { if (!navigator.sendBeacon(destino, corpo)) throw new Error("beacon"); }
+      else { const r = await fetch(destino, { method: "POST", body: corpo, keepalive: corpo.length < 60000 }); if (r.status >= 500) throw new Error("HTTP " + r.status); }
     } catch (e) { if (fila.length < 500) fila.unshift(...lote); }
   }
   ["mousemove", "keydown", "scroll", "touchstart"].forEach(ev => addEventListener(ev, () => { ultimoMov = Date.now(); }, { passive: true }));
@@ -41,18 +67,28 @@ const T = (() => {
   }, 15000);
   setInterval(() => enviar(), 30000);
   addEventListener("pagehide", () => enviar(true));
-  return { evento, configurar: d => { destino = d; }, fila, sessao };
+  return { evento, configurar: d => { destino = d; enviar(); }, fila, sessao };
 })();
 window.addEventListener("error", e => T.evento("erro", { mensagem: String(e.message).slice(0, 200) }));
 
-/* ---------------- progresso (local nesta versão; servidor na publicada) ---------------- */
+/* ---------------- progresso (neste navegador + no servidor, para continuar em outro aparelho) ---------------- */
 const P = (() => {
-  const CH = "portal.progresso.v1";
-  let d = {};
+  const CH = "portal.progresso.v1." + DOC;
+  let d = {}, tSrv = null;
   try { d = JSON.parse(localStorage.getItem(CH) || "{}"); } catch (e) { d = {}; }
   d.vistos = d.vistos || {};
-  const salvar = () => { try { localStorage.setItem(CH, JSON.stringify(d)); } catch (e) {} };
+  const salvar = () => {
+    try { localStorage.setItem(CH, JSON.stringify(d)); } catch (e) {}
+    if (!LOCAL && S.token()) { clearTimeout(tSrv); tSrv = setTimeout(() => api("progresso", { dados: d }).catch(() => {}), 3000); }
+  };
   return {
+    juntar(srv) {   // une o que veio do servidor com o deste navegador (nada se perde)
+      if (!srv || typeof srv !== "object") return;
+      for (const [cam, cs] of Object.entries(srv.vistos || {})) d.vistos[cam] = { ...(cs || {}), ...(d.vistos[cam] || {}) };
+      d.ultimo = { ...(srv.ultimo || {}), ...(d.ultimo || {}) };
+      d.carteira = d.carteira || srv.carteira;
+      salvar();
+    },
     marcar(caminho, cartao) { if (!d.vistos[caminho]) d.vistos[caminho] = {}; if (!d.vistos[caminho][cartao]) { d.vistos[caminho][cartao] = 1; salvar(); } },
     fracao(caminho, total) { return total ? Math.min(1, Object.keys(d.vistos[caminho] || {}).length / total) : 0; },
     ultimo(caminho, v) { if (v === undefined) return (d.ultimo || {})[caminho]; d.ultimo = d.ultimo || {}; d.ultimo[caminho] = v; salvar(); },
@@ -62,8 +98,9 @@ const P = (() => {
 
 /* ---------------- dados ---------------- */
 let C = null, CART = null;
-async function carregar(url) {
-  const r = await fetch(url, { cache: "no-store" });
+async function carregar(tipo) {
+  if (!LOCAL) return api("conteudo", { tipo });
+  const r = await fetch(FONTE[tipo], { cache: "no-store" });
   if (!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
@@ -88,6 +125,7 @@ document.addEventListener("click", e => {
 
 const app = () => $("#app");
 function render() {
+  if (!C) return;
   const h = location.hash || "#/";
   const anterior = rotaAtual; rotaAtual = h;
   fecharFolha();
@@ -150,7 +188,7 @@ function telaCapa() {
       <a class="btn btn-tinta" href="#/carteira" data-ev="carteira_aberta">Abrir a carteira →</a>
     </div>
     ${blocoPergunte()}
-    <footer class="rodape"><div>Diagnóstico comercial · ${C.cliente} · ${C.data}</div><div>SparkSales · Alan Mansim</div></footer>
+    <footer class="rodape"><div>Diagnóstico comercial · ${C.cliente} · ${C.data}</div><div>SparkSales · Alan Mansim${!LOCAL && S.email() ? ` · ${esc(S.email())} · <button type="button" class="sair" data-sair>Sair</button>` : ""}</div></footer>
   </div>`;
   ligarPergunte(app());
 }
@@ -335,34 +373,91 @@ function ligarPergunte(raiz) {
   const f = raiz.querySelector("[data-pergunta]"); if (!f) return;
   const inp = f.querySelector("input"), conv = raiz.querySelector("#conversa");
   raiz.querySelectorAll("[data-sug]").forEach(b => b.onclick = () => { inp.value = b.textContent; f.requestSubmit(); });
+  const btn = f.querySelector("button");
   f.onsubmit = async e => {
     e.preventDefault();
-    const q = inp.value.trim(); if (!q) return;
-    inp.value = "";
-    conv.insertAdjacentHTML("beforeend", `<div class="msg-eu">${esc(q)}</div>`);
+    const q = inp.value.trim(); if (!q || btn.disabled) return;
+    inp.value = ""; btn.disabled = true;
+    conv.insertAdjacentHTML("beforeend", `<div class="msg-eu">${esc(q)}</div><div class="msg-ia aviso pensando"><div class="lente">Lendo as análises…</div><p>Isso leva alguns segundos.</p></div>`);
     T.evento("pergunta_feita", { caracteres: q.length });
     const r = await perguntar(q);
+    const p = conv.querySelector(".pensando"); if (p) p.remove();
     conv.insertAdjacentHTML("beforeend", r);
+    btn.disabled = false;
   };
 }
 async function perguntar(q) {
-  // Na versão publicada, a pergunta vai para a função no servidor, que responde só com o conteúdo do projeto.
-  return `<div class="msg-ia aviso"><div class="lente">Versão local</div><p>A caixa de perguntas responde quando o portal estiver conectado ao servidor. Nesta prévia, ela só registra a pergunta.</p></div>`;
+  if (LOCAL) return `<div class="msg-ia aviso"><div class="lente">Prévia local</div><p>Nesta prévia a caixa não responde. No portal publicado, a resposta vem do servidor, só com o conteúdo do projeto.</p></div>`;
+  try {
+    const r = await api("perguntar", { pergunta: q, sessao: T.sessao });
+    const fora = r.lente === "Fora das análises";
+    return `<div class="msg-ia${fora ? " aviso" : ""}"><div class="lente">${esc(r.lente)}</div>
+      ${String(r.resposta || "").split(/\n{2,}/).map(par => `<p>${esc(par)}</p>`).join("")}
+      ${(r.fontes || []).length && !fora ? `<div class="fonte">Fonte: ${r.fontes.map(x => `<span class="f">${esc(x)}</span>`).join("")}</div>` : ""}
+      ${r.restantes != null && r.restantes <= 5 ? `<div class="fonte">Restam ${r.restantes} pergunta${r.restantes === 1 ? "" : "s"} hoje.</div>` : ""}</div>`;
+  } catch (e) {
+    if (e instanceof SemSessao) { telaEntrada(e.message); return ""; }
+    return `<div class="msg-ia aviso"><div class="lente">Sem resposta</div><p>${esc(e.message || "Não consegui responder agora. Tente de novo em instantes.")}</p></div>`;
+  }
+}
+
+/* ---------------- entrada (e-mail + palavra-passe) ---------------- */
+function telaEntrada(aviso = "") {
+  fecharFolha();
+  document.body.classList.add("sem-sessao");
+  app().innerHTML = `
+  <div class="entrada"><form class="cx" id="entrar" novalidate>
+    <span class="selo">Diagnóstico comercial</span>
+    <h1>Entre para ver <em class="s">o diagnóstico.</em></h1>
+    <p>Use o seu e-mail e a palavra-passe que veio com o documento impresso.</p>
+    <label for="em">E-mail</label>
+    <input id="em" type="email" autocomplete="email" inputmode="email" required>
+    <label for="pp">Palavra-passe</label>
+    <input id="pp" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required>
+    <p class="erro" id="erro" role="alert">${esc(aviso)}</p>
+    <button class="btn btn-lar" type="submit">Entrar →</button>
+  </form></div>`;
+  const f = $("#entrar"), b = f.querySelector("button");
+  $("#em").focus();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const email = $("#em").value.trim(), palavra = $("#pp").value.trim();
+    if (!email || !palavra) { $("#erro").textContent = "Preencha o e-mail e a palavra-passe."; return; }
+    b.disabled = true; b.textContent = "Entrando…"; $("#erro").textContent = "";
+    try {
+      const r = await api("entrar", { documento: DOC, email, palavra_passe: palavra });
+      S.guardar({ token: r.token, email: r.email, expira_em: r.expira_em });
+      document.body.classList.remove("sem-sessao");
+      iniciar();
+    } catch (err) {
+      $("#erro").textContent = err.message === "Failed to fetch" ? "Sem conexão. Verifique a internet e tente de novo." : err.message;
+      b.disabled = false; b.textContent = "Entrar →";
+    }
+  };
 }
 
 /* ---------------- início ---------------- */
 async function iniciar() {
+  if (!LOCAL) {
+    if (!DOC) { app().innerHTML = `<div class="estado"><div><h1>Link incompleto</h1><p>Abra o endereço completo que veio com o documento.</p></div></div>`; return; }
+    if (!S.token()) { telaEntrada(); return; }
+    T.configurar(API + "/eventos");
+    app().innerHTML = `<div class="estado"><div><h1>Carregando…</h1></div></div>`;
+  }
   try {
-    C = await carregar(FONTE.conteudo);
+    if (!LOCAL) api("progresso").then(r => { P.juntar(r.dados); if (C) render(); }).catch(() => {});
+    C = await carregar("conteudo");
     render();
-    carregar(FONTE.carteira).then(d => { CART = d; if ((location.hash || "").startsWith("#/carteira") || !location.hash || location.hash === "#/") render(); })
+    carregar("carteira").then(d => { CART = d; if ((location.hash || "").startsWith("#/carteira") || !location.hash || location.hash === "#/") render(); })
       .catch(() => { CART = { clientes: [], atualizado: "" }; });
   } catch (e) {
-    app().innerHTML = `<div class="estado"><div><h1>Não foi possível carregar o conteúdo</h1><p>Verifique a conexão e tente de novo.</p><p><button class="btn btn-tinta" type="button" onclick="location.reload()">Tentar de novo</button></p></div></div>`;
+    if (e instanceof SemSessao) { telaEntrada("Sua sessão expirou. Entre de novo."); return; }
+    app().innerHTML = `<div class="estado"><div><h1>Não foi possível carregar o conteúdo</h1><p>${e.status === 404 ? "O conteúdo ainda não foi publicado." : "Verifique a conexão e tente de novo."}</p><p><button class="btn btn-tinta" type="button" onclick="location.reload()">Tentar de novo</button></p></div></div>`;
     T.evento("erro", { mensagem: "conteudo: " + e.message });
   }
 }
 document.addEventListener("click", e => {
+  if (e.target.closest("[data-sair]")) { S.sair(); C = CART = null; telaEntrada(); return; }
   const el = e.target.closest("[data-ev]");
   if (el) T.evento("cta_clicado", { alvo: el.dataset.ev, caminho: el.dataset.caminho });
   if (e.target.closest("[data-perguntar]")) {
