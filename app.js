@@ -87,8 +87,11 @@ const P = (() => {
       for (const [cam, cs] of Object.entries(srv.vistos || {})) d.vistos[cam] = { ...(cs || {}), ...(d.vistos[cam] || {}) };
       d.ultimo = { ...(srv.ultimo || {}), ...(d.ultimo || {}) };
       d.carteira = d.carteira || srv.carteira;
+      if ((srv.conversaDesde || "") > (d.conversaDesde || "")) d.conversaDesde = srv.conversaDesde;
       salvar();
     },
+    // "Nova conversa": a partir daqui a caixa mostra e considera só as perguntas novas (nada é apagado)
+    conversaDesde(v) { if (v === undefined) return d.conversaDesde || null; d.conversaDesde = v; salvar(); },
     marcar(caminho, cartao) { if (!d.vistos[caminho]) d.vistos[caminho] = {}; if (!d.vistos[caminho][cartao]) { d.vistos[caminho][cartao] = 1; salvar(); } },
     fracao(caminho, total) { return total ? Math.min(1, Object.keys(d.vistos[caminho] || {}).length / total) : 0; },
     ultimo(caminho, v) { if (v === undefined) return (d.ultimo || {})[caminho]; d.ultimo = d.ultimo || {}; d.ultimo[caminho] = v; salvar(); },
@@ -362,6 +365,7 @@ function blocoPergunte() {
     <h2>Não entendeu algo? <em class="s">Pergunte.</em></h2>
     <p>As respostas vêm só das análises deste projeto, com a fonte ao lado. Se não estiver nelas, a resposta diz.</p>
     <div class="lentes"><span><i>●</i>Teoria das Restrições</span><span><i>●</i>Maturidade de processos</span><span><i>●</i>Dados</span></div>
+    <div class="conversa-topo" hidden><button type="button" class="ant" data-anteriores hidden></button><button type="button" class="nova" data-nova hidden>Nova conversa</button></div>
     <div class="conversa" id="conversa" aria-live="polite"></div>
     <form class="campo" data-pergunta><label class="sr" for="pq">Sua pergunta</label>
       <textarea id="pq" rows="1" maxlength="400" enterkeyhint="send" placeholder="${esc((C.perguntas||{}).exemplo||"Escreva sua pergunta")}" autocomplete="off"></textarea>
@@ -369,23 +373,81 @@ function blocoPergunte() {
     <div class="sugestoes">${((C.perguntas||{}).sugestoes||[]).map(s => `<button type="button" data-sug>${s}</button>`).join("")}</div>
   </section>`;
 }
+// texto da resposta: parágrafos, com e-mail e WhatsApp da SparkSales clicáveis
+function textoResposta(t) {
+  return String(t || "").split(/\n{2,}/).map(par => `<p>${esc(par)
+    .replace(/alan@sparksales\.com\.br/g, '<a href="mailto:alan@sparksales.com.br">alan@sparksales.com.br</a>')
+    .replace(/\(12\)\s?99175-5717/g, '<a href="https://wa.me/5512991755717" target="_blank" rel="noopener">$&</a>')}</p>`).join("");
+}
+function htmlResposta(r) {
+  const fora = r.lente === "Fora das análises";
+  return `<div class="msg-ia${fora ? " aviso" : ""}"><div class="lente">${esc(r.lente)}</div>
+    ${textoResposta(r.resposta)}
+    ${(r.fontes || []).length && !fora ? `<div class="fonte">Fonte: ${r.fontes.map(x => `<span class="f">${esc(x)}</span>`).join("")}</div>` : ""}
+    ${r.restantes != null && r.restantes <= 5 ? `<div class="fonte">Restam ${r.restantes} pergunta${r.restantes === 1 ? "" : "s"} hoje.</div>` : ""}</div>`;
+}
+const htmlTroca = (it) => `<div class="msg-eu">${esc(it.pergunta)}</div>${htmlResposta(it)}`;
+
 function ligarPergunte(raiz) {
   const f = raiz.querySelector("[data-pergunta]"); if (!f) return;
   const inp = f.querySelector("textarea"), conv = raiz.querySelector("#conversa"), sec = raiz.querySelector("#pergunte");
+  const topo = raiz.querySelector(".conversa-topo"), bAnt = raiz.querySelector("[data-anteriores]"), bNova = raiz.querySelector("[data-nova]");
   raiz.querySelectorAll("[data-sug]").forEach(b => b.onclick = () => { inp.value = b.textContent; f.requestSubmit(); });
   const btn = f.querySelector("button");
-  // a caixa cresce com o texto (até ~6 linhas; depois rola por dentro)
-  const ajustar = () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight, 168) + "px"; };
+
+  // a caixa cresce com o texto (até ~6 linhas; depois rola por dentro). Vazia, mede o exemplo cinza, para ele não sair cortado.
+  const ajustar = () => {
+    inp.style.height = "auto";
+    let h = inp.scrollHeight;
+    if (!inp.value && inp.placeholder) { inp.value = inp.placeholder; h = inp.scrollHeight; inp.value = ""; }
+    inp.style.height = Math.min(h, 168) + "px";
+  };
   inp.addEventListener("input", ajustar);
+  requestAnimationFrame(ajustar);
+  addEventListener("resize", ajustar);
   // Enter envia; Shift+Enter quebra linha
   inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); f.requestSubmit(); } });
+
+  const estado = () => {
+    const tem = !!conv.querySelector(".msg-eu");
+    sec && sec.classList.toggle("com-conversa", tem);
+    bNova.hidden = !tem;
+    topo.hidden = bNova.hidden && bAnt.hidden;
+  };
+
+  // conversa recente (24 h ou desde "Nova conversa") volta ao abrir a página
+  if (!LOCAL) api("historico", { desde: P.conversaDesde() }).then(r => {
+    if (conv.querySelector(".msg-eu")) return;   // a pessoa já perguntou enquanto carregava
+    conv.innerHTML = (r.itens || []).map(htmlTroca).join("");
+    if (r.anteriores > 0) { bAnt.textContent = `Ver perguntas anteriores (${r.anteriores})`; bAnt.hidden = false; }
+    estado();
+  }).catch(() => {});
+
+  bAnt.onclick = async () => {
+    bAnt.disabled = true;
+    try {
+      const r = await api("historico", { desde: P.conversaDesde(), anteriores: true });
+      const alt = document.documentElement.scrollHeight;
+      const temRecente = !!conv.querySelector(".msg-eu");
+      conv.insertAdjacentHTML("afterbegin", (r.itens || []).map(htmlTroca).join("") + (temRecente ? `<div class="divisa">Conversa recente</div>` : ""));
+      scrollBy(0, document.documentElement.scrollHeight - alt);   // mantém na tela o que a pessoa estava lendo
+      bAnt.hidden = true; estado();
+    } catch (e) { bAnt.disabled = false; }
+  };
+  bNova.onclick = () => {
+    P.conversaDesde(new Date().toISOString());
+    conv.innerHTML = ""; bAnt.hidden = true; estado();
+    T.evento("cta_clicado", { cta: "nova_conversa" });
+    inp.focus();
+  };
+
   f.onsubmit = async e => {
     e.preventDefault();
     const q = inp.value.trim(); if (!q || btn.disabled) return;
     inp.value = ""; ajustar(); btn.disabled = true;
     if (matchMedia("(pointer:coarse)").matches) inp.blur();   // no celular, fecha o teclado para a resposta ter espaço
-    sec && sec.classList.add("com-conversa");
     conv.insertAdjacentHTML("beforeend", `<div class="msg-eu">${esc(q)}</div><div class="msg-ia aviso pensando"><div class="lente">Lendo as análises…</div><p>Isso leva alguns segundos.</p></div>`);
+    estado();
     // leva a pergunta nova para o topo da tela: a resposta aparece logo abaixo e é lida de cima para baixo
     const eu = conv.querySelectorAll(".msg-eu"); eu[eu.length - 1].scrollIntoView({ behavior: "smooth", block: "start" });
     T.evento("pergunta_feita", { caracteres: q.length });
@@ -398,12 +460,7 @@ function ligarPergunte(raiz) {
 async function perguntar(q) {
   if (LOCAL) return `<div class="msg-ia aviso"><div class="lente">Prévia local</div><p>Nesta prévia a caixa não responde. No portal publicado, a resposta vem do servidor, só com o conteúdo do projeto.</p></div>`;
   try {
-    const r = await api("perguntar", { pergunta: q, sessao: T.sessao });
-    const fora = r.lente === "Fora das análises";
-    return `<div class="msg-ia${fora ? " aviso" : ""}"><div class="lente">${esc(r.lente)}</div>
-      ${String(r.resposta || "").split(/\n{2,}/).map(par => `<p>${esc(par)}</p>`).join("")}
-      ${(r.fontes || []).length && !fora ? `<div class="fonte">Fonte: ${r.fontes.map(x => `<span class="f">${esc(x)}</span>`).join("")}</div>` : ""}
-      ${r.restantes != null && r.restantes <= 5 ? `<div class="fonte">Restam ${r.restantes} pergunta${r.restantes === 1 ? "" : "s"} hoje.</div>` : ""}</div>`;
+    return htmlResposta(await api("perguntar", { pergunta: q, sessao: T.sessao, desde: P.conversaDesde() }));
   } catch (e) {
     if (e instanceof SemSessao) { telaEntrada(e.message); return ""; }
     return `<div class="msg-ia aviso"><div class="lente">Sem resposta</div><p>${esc(e.message || "Não consegui responder agora. Tente de novo em instantes.")}</p></div>`;
