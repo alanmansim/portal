@@ -362,23 +362,32 @@ function blocoPergunte() {
     <h2>Não entendeu algo? <em class="s">Pergunte.</em></h2>
     <p>As respostas vêm só das análises deste projeto, com a fonte ao lado. Se não estiver nelas, a resposta diz.</p>
     <div class="lentes"><span><i>●</i>Teoria das Restrições</span><span><i>●</i>Maturidade de processos</span><span><i>●</i>Dados</span></div>
+    <div class="conversa" id="conversa" aria-live="polite"></div>
     <form class="campo" data-pergunta><label class="sr" for="pq">Sua pergunta</label>
-      <input id="pq" type="text" maxlength="400" placeholder="${esc((C.perguntas||{}).exemplo||"Escreva sua pergunta")}" autocomplete="off">
+      <textarea id="pq" rows="1" maxlength="400" enterkeyhint="send" placeholder="${esc((C.perguntas||{}).exemplo||"Escreva sua pergunta")}" autocomplete="off"></textarea>
       <button type="submit" aria-label="Enviar pergunta">↑</button></form>
     <div class="sugestoes">${((C.perguntas||{}).sugestoes||[]).map(s => `<button type="button" data-sug>${s}</button>`).join("")}</div>
-    <div class="conversa" id="conversa" aria-live="polite"></div>
   </section>`;
 }
 function ligarPergunte(raiz) {
   const f = raiz.querySelector("[data-pergunta]"); if (!f) return;
-  const inp = f.querySelector("input"), conv = raiz.querySelector("#conversa");
+  const inp = f.querySelector("textarea"), conv = raiz.querySelector("#conversa"), sec = raiz.querySelector("#pergunte");
   raiz.querySelectorAll("[data-sug]").forEach(b => b.onclick = () => { inp.value = b.textContent; f.requestSubmit(); });
   const btn = f.querySelector("button");
+  // a caixa cresce com o texto (até ~6 linhas; depois rola por dentro)
+  const ajustar = () => { inp.style.height = "auto"; inp.style.height = Math.min(inp.scrollHeight, 168) + "px"; };
+  inp.addEventListener("input", ajustar);
+  // Enter envia; Shift+Enter quebra linha
+  inp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); f.requestSubmit(); } });
   f.onsubmit = async e => {
     e.preventDefault();
     const q = inp.value.trim(); if (!q || btn.disabled) return;
-    inp.value = ""; btn.disabled = true;
+    inp.value = ""; ajustar(); btn.disabled = true;
+    if (matchMedia("(pointer:coarse)").matches) inp.blur();   // no celular, fecha o teclado para a resposta ter espaço
+    sec && sec.classList.add("com-conversa");
     conv.insertAdjacentHTML("beforeend", `<div class="msg-eu">${esc(q)}</div><div class="msg-ia aviso pensando"><div class="lente">Lendo as análises…</div><p>Isso leva alguns segundos.</p></div>`);
+    // leva a pergunta nova para o topo da tela: a resposta aparece logo abaixo e é lida de cima para baixo
+    const eu = conv.querySelectorAll(".msg-eu"); eu[eu.length - 1].scrollIntoView({ behavior: "smooth", block: "start" });
     T.evento("pergunta_feita", { caracteres: q.length });
     const r = await perguntar(q);
     const p = conv.querySelector(".pensando"); if (p) p.remove();
@@ -462,8 +471,12 @@ document.addEventListener("click", e => {
   if (el) T.evento("cta_clicado", { alvo: el.dataset.ev, caminho: el.dataset.caminho });
   if (e.target.closest("[data-perguntar]")) {
     e.preventDefault();
-    if (!$("#pergunte")) { irPara("#/"); setTimeout(() => { const s = $("#pergunte"); s && s.scrollIntoView(); $("#pq") && $("#pq").focus(); }, 200); }
-    else { $("#pergunte").scrollIntoView({ behavior: "smooth" }); $("#pq").focus(); }
+    const irCampo = (suave) => { const s = $("#pergunte"), c = $("#pq"); if (!s || !c) return;
+      // sem conversa: mostra o bloco desde o título; com conversa: vai direto ao campo, abaixo da última resposta
+      (s.classList.contains("com-conversa") ? c : s).scrollIntoView({ behavior: suave ? "smooth" : "auto", block: s.classList.contains("com-conversa") ? "center" : "start" });
+      c.focus({ preventScroll: true }); };
+    if (!$("#pergunte")) { irPara("#/"); setTimeout(() => irCampo(false), 200); }
+    else irCampo(true);
   }
 });
 T.evento("sessao_inicio", { largura: innerWidth, toque: "ontouchstart" in window });
