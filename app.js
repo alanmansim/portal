@@ -123,7 +123,14 @@ function voltar() { if (profundidade > 0) { profundidade--; history.back(); } el
 addEventListener("hashchange", () => { posicoes[rotaAtual] = posicoes[rotaAtual] ?? 0; render(); });
 document.addEventListener("click", e => {
   const a = e.target.closest("a[href^='#']");
-  if (a && !e.defaultPrevented) { e.preventDefault(); posicoes[location.hash || "#/"] = scrollY; profundidade++; location.hash = a.getAttribute("href"); }
+  if (!a || e.defaultPrevented) return;
+  e.preventDefault();
+  const destino = a.getAttribute("href");
+  // âncora comum (ex.: "Ir para o conteúdo"): só leva o foco, sem trocar de tela
+  if (!destino.startsWith("#/")) { const el = document.getElementById(destino.slice(1)); if (el) { el.setAttribute("tabindex", "-1"); el.focus(); } return; }
+  // tocar na aba em que já se está leva ao topo dela (como nos apps)
+  if (destino === (location.hash || "#/") || (destino === "#/" && !location.hash)) { scrollTo({ top: 0, behavior: "smooth" }); return; }
+  posicoes[location.hash || "#/"] = scrollY; profundidade++; location.hash = destino;
 });
 
 const app = () => $("#app");
@@ -131,7 +138,7 @@ function render() {
   if (!C) return;
   const h = location.hash || "#/";
   const anterior = rotaAtual; rotaAtual = h;
-  fecharFolha();
+  fecharFolha(true);
   const [, rota, a, b] = h.split("/");
   if (!rota) telaCapa();
   else if (rota === "c") telaCaminho(a, b);
@@ -155,7 +162,8 @@ function telaCapa() {
   const cp = C.capa;
   const feitos = PERCURSO.filter(concluido).length;
   const proximo = PERCURSO.find(id => !concluido(id));
-  const hrefProx = !proximo ? "#/c/toc" : proximo === "carteira" ? "#/carteira" : "#/c/" + proximo;
+  const ultimoVisto = proximo && proximo !== "carteira" ? P.ultimo(proximo) : null;   // continua do último cartão visto
+  const hrefProx = !proximo ? "#/c/toc" : proximo === "carteira" ? "#/carteira" : "#/c/" + proximo + (ultimoVisto ? "/" + ultimoVisto : "");
   const nomeProx = !proximo ? "Rever o percurso" : feitos === 0 ? "Começar o percurso" : "Continuar o percurso";
   const P1 = CART ? CART.clientes.filter(x => x.p === "1").length : "—";
   app().innerHTML = `
@@ -347,16 +355,23 @@ function abrirCliente(c) {
 
 /* ---------------- folha lateral ---------------- */
 function abrirFolha(html) {
-  fecharFolha();
-  const v = document.createElement("div"); v.className = "veu"; v.onclick = fecharFolha;
+  fecharFolha(true);
+  const v = document.createElement("div"); v.className = "veu"; v.onclick = () => fecharFolha();
   const f = document.createElement("aside"); f.className = "folha"; f.setAttribute("role", "dialog"); f.setAttribute("aria-modal", "true"); f.innerHTML = html;
   document.body.append(v, f);
-  f.querySelector("[data-fechar]").onclick = fecharFolha;
+  f.querySelector("[data-fechar]").onclick = () => fecharFolha();
   f.querySelector("[data-fechar]").focus();
   document.addEventListener("keydown", escFecha);
+  // o "voltar" do celular/navegador fecha a ficha, em vez de sair da tela
+  if (!(history.state && history.state.folha)) history.pushState({ folha: 1 }, "");
 }
 function escFecha(e) { if (e.key === "Escape") fecharFolha(); }
-function fecharFolha() { document.querySelectorAll(".veu,.folha").forEach(x => x.remove()); document.removeEventListener("keydown", escFecha); }
+function fecharFolha(peloHistorico) {
+  const aberta = document.querySelector(".folha");
+  document.querySelectorAll(".veu,.folha").forEach(x => x.remove()); document.removeEventListener("keydown", escFecha);
+  if (aberta && !peloHistorico && history.state && history.state.folha) history.back();   // tira a entrada da ficha do histórico
+}
+addEventListener("popstate", () => { if (document.querySelector(".folha")) fecharFolha(true); });
 
 /* ---------------- perguntas ---------------- */
 function blocoPergunte() {
@@ -386,6 +401,7 @@ function htmlResposta(r) {
     ${(r.fontes || []).length && !fora ? `<div class="fonte">Fonte: ${r.fontes.map(x => `<span class="f">${esc(x)}</span>`).join("")}</div>` : ""}
     ${r.restantes != null && r.restantes <= 5 ? `<div class="fonte">Restam ${r.restantes} pergunta${r.restantes === 1 ? "" : "s"} hoje.</div>` : ""}</div>`;
 }
+let HIST = null;   // última conversa carregada, para redesenhar a capa sem esperar o servidor
 const htmlTroca = (it) => `<div class="msg-eu">${esc(it.pergunta)}</div>${htmlResposta(it)}`;
 
 function ligarPergunte(raiz) {
@@ -416,11 +432,17 @@ function ligarPergunte(raiz) {
   };
 
   // conversa recente (24 h ou desde "Nova conversa") volta ao abrir a página
-  if (!LOCAL) api("historico", { desde: P.conversaDesde() }).then(r => {
-    if (conv.querySelector(".msg-eu")) return;   // a pessoa já perguntou enquanto carregava
+  const mostrar = (r) => {
     conv.innerHTML = (r.itens || []).map(htmlTroca).join("");
-    if (r.anteriores > 0) { bAnt.textContent = `Ver perguntas anteriores (${r.anteriores})`; bAnt.hidden = false; }
+    bAnt.hidden = !(r.anteriores > 0);
+    if (r.anteriores > 0) bAnt.textContent = `Ver perguntas anteriores (${r.anteriores})`;
     estado();
+  };
+  if (HIST) mostrar(HIST);
+  if (!LOCAL) api("historico", { desde: P.conversaDesde() }).then(r => {
+    const novo = JSON.stringify(r) !== JSON.stringify(HIST);
+    HIST = r;
+    if (novo && !btn.disabled) mostrar(r);   // não mexe enquanto uma pergunta está em andamento
   }).catch(() => {});
 
   bAnt.onclick = async () => {
@@ -436,7 +458,7 @@ function ligarPergunte(raiz) {
   };
   bNova.onclick = () => {
     P.conversaDesde(new Date().toISOString());
-    conv.innerHTML = ""; bAnt.hidden = true; estado();
+    HIST = null; conv.innerHTML = ""; bAnt.hidden = true; estado();
     T.evento("cta_clicado", { cta: "nova_conversa" });
     inp.focus();
   };
@@ -453,23 +475,25 @@ function ligarPergunte(raiz) {
     T.evento("pergunta_feita", { caracteres: q.length });
     const r = await perguntar(q);
     const p = conv.querySelector(".pensando"); if (p) p.remove();
-    conv.insertAdjacentHTML("beforeend", r);
+    conv.insertAdjacentHTML("beforeend", r.html);
+    if (r.dados) { HIST = HIST || { itens: [], anteriores: 0 }; HIST.itens = [...(HIST.itens || []), { pergunta: q, ...r.dados }]; }
     btn.disabled = false;
   };
 }
 async function perguntar(q) {
-  if (LOCAL) return `<div class="msg-ia aviso"><div class="lente">Prévia local</div><p>Nesta prévia a caixa não responde. No portal publicado, a resposta vem do servidor, só com o conteúdo do projeto.</p></div>`;
+  if (LOCAL) return { html: `<div class="msg-ia aviso"><div class="lente">Prévia local</div><p>Nesta prévia a caixa não responde. No portal publicado, a resposta vem do servidor, só com o conteúdo do projeto.</p></div>` };
   try {
-    return htmlResposta(await api("perguntar", { pergunta: q, sessao: T.sessao, desde: P.conversaDesde() }));
+    const r = await api("perguntar", { pergunta: q, sessao: T.sessao, desde: P.conversaDesde() });
+    return { html: htmlResposta(r), dados: { resposta: r.resposta, lente: r.lente, fontes: r.fontes } };
   } catch (e) {
-    if (e instanceof SemSessao) { telaEntrada(e.message); return ""; }
-    return `<div class="msg-ia aviso"><div class="lente">Sem resposta</div><p>${esc(e.message || "Não consegui responder agora. Tente de novo em instantes.")}</p></div>`;
+    if (e instanceof SemSessao) { telaEntrada(e.message); return { html: "" }; }
+    return { html: `<div class="msg-ia aviso"><div class="lente">Sem resposta</div><p>${esc(e.message || "Não consegui responder agora. Tente de novo em instantes.")}</p></div>` };
   }
 }
 
 /* ---------------- entrada (e-mail + palavra-passe) ---------------- */
 function telaEntrada(aviso = "") {
-  fecharFolha();
+  fecharFolha(true);
   document.body.classList.add("sem-sessao");
   app().innerHTML = `
   <div class="entrada"><form class="cx" id="entrar" novalidate>
@@ -523,7 +547,7 @@ async function iniciar() {
   }
 }
 document.addEventListener("click", e => {
-  if (e.target.closest("[data-sair]")) { S.sair(); C = CART = null; telaEntrada(); return; }
+  if (e.target.closest("[data-sair]")) { S.sair(); C = CART = HIST = null; telaEntrada(); return; }
   const el = e.target.closest("[data-ev]");
   if (el) T.evento("cta_clicado", { alvo: el.dataset.ev, caminho: el.dataset.caminho });
   if (e.target.closest("[data-perguntar]")) {

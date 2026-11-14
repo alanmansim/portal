@@ -214,7 +214,7 @@ em.s,.s{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--l
 .veu{position:fixed;inset:0;background:rgba(35,31,32,.35);z-index:60}
 .folha{position:fixed;z-index:61;background:var(--bege);right:0;top:0;bottom:0;width:min(520px,100%);overflow-y:auto;box-shadow:-20px 0 50px -30px rgba(0,0,0,.4);padding:24px 24px 48px}
 @media (max-width:640px){.folha{top:auto;max-height:88vh;border-radius:20px 20px 0 0;padding:20px 16px 40px}}
-.folha .fechar{background:none;border:0;font:800 15px var(--sans);cursor:pointer;color:var(--tinta);padding:6px 0}
+.folha .fechar{background:none;border:0;font:800 15px var(--sans);cursor:pointer;color:var(--tinta);padding:6px 0;margin-right:12px}
 .folha h2{font-size:26px;letter-spacing:-.02em;margin:10px 0 6px;line-height:1.12}
 .folha dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:18px 0;font-size:15px}
 .folha dt{color:var(--cinza)}
@@ -248,3 +248,6 @@ body.sem-sessao .topo nav, body.sem-sessao .barra, body.sem-sessao .perguntar-fi
 @media (max-width:640px){.entrada .cx{padding:28px 20px}}
 .fonte span.f{border:1px solid var(--linha);border-radius:8px;padding:3px 8px;background:var(--bege)}
 .rodape .sair{background:none;border:0;padding:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
+
+.voltar{white-space:nowrap;flex:none}
+.trilho .nome{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
