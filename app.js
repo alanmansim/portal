@@ -499,7 +499,7 @@ function telaEntrada(aviso = "") {
   <div class="entrada"><form class="cx" id="entrar" novalidate>
     <span class="selo">Diagnóstico comercial</span>
     <h1>Entre para ver <em class="s">o diagnóstico.</em></h1>
-    <p>Use o seu e-mail e a palavra-passe que veio com o documento impresso.</p>
+    <p>Use o seu e-mail e a palavra-passe que a SparkSales enviou.</p>
     <label for="em">E-mail</label>
     <input id="em" type="email" autocomplete="email" inputmode="email" required>
     <label for="pp">Palavra-passe</label>
