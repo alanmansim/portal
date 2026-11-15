@@ -305,7 +305,7 @@ function telaCarteira() {
   <div class="wrap"><p class="contagem" id="contagem" aria-live="polite"></p><div class="lista" id="lista"></div><div class="mais" id="mais"></div></div>`;
   $("[data-voltar]").onclick = voltar;
   let tq;
-  $("#q").oninput = e => { filtro.q = e.target.value; filtro.limite = 40; listar(); clearTimeout(tq); tq = setTimeout(() => T.evento("busca", { caracteres: filtro.q.length }), 800); };
+  $("#q").oninput = e => { filtro.q = e.target.value; filtro.limite = 40; listar(); clearTimeout(tq); tq = setTimeout(() => filtro.q.trim() && T.evento("busca", { termo: filtro.q.trim().slice(0, 60), caracteres: filtro.q.length }), 1200); };
   app().querySelectorAll("[data-p]").forEach(b => b.onclick = () => {
     filtro.p = b.dataset.p; filtro.limite = 40;
     app().querySelectorAll("[data-p]").forEach(x => x.setAttribute("aria-pressed", x === b)); listar();
@@ -350,7 +350,7 @@ function abrirCliente(c) {
       <dt>Classe ABC · RFV</dt><dd>${esc(c.abc || "—")} · ${esc(c.rfv || "—")}</dd>
     </dl>
     <p style="font-size:12px;color:var(--cinza-claro)">Sinais são indicativos, não probabilidade de perda. Potencial é teto, não meta.</p>`);
-  T.evento("cliente_aberto", { prioridade: c.p, responsavel: c.r });
+  T.evento("cliente_aberto", { cliente: String(c.n).slice(0, 120), prioridade: c.p, responsavel: c.r });
 }
 
 /* ---------------- folha lateral ---------------- */
